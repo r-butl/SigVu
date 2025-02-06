@@ -7,7 +7,7 @@ raised.
 This project utilizes standard ML, plotting, and data handling libraries
 to process and label data, all bottled up in a simply PyQt5 GUI.
 
-<img src="assets/current_gui.png" width="500px" />
+<img src="assets/current_gui.png" width="800px" />
 
 It serves a few purposes for me:
 1. Interactive manipulation of data view signal processing functionality.
@@ -17,4 +17,4 @@ It serves a few purposes for me:
 
 So far, this is the high-level UML for the archtecture of the project.
 
-<img src="assets/highlevel-uml.png" width="500px" />
+<img src="assets/highlevel-uml.png" width="800px" />
