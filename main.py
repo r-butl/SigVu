@@ -103,6 +103,11 @@ class DataControllerView(QWidget):
     def init_UI(self):
         layout = QVBoxLayout()
 
+        windowLabel = QLabel("Change Sample")
+        windowLabel.setAlignment(Qt.AlignCenter)
+        layout.addWidget(windowLabel)
+        layout.addStretch()
+
         self.prevButton = QPushButton('Previous', self)
         self.prevButton.setFixedWidth(100)
         self.prevButton.clicked.connect(lambda: self.update_sample(-1))
@@ -112,6 +117,8 @@ class DataControllerView(QWidget):
         self.nextButton.setFixedWidth(100)
         self.nextButton.clicked.connect(lambda: self.update_sample(1))
         layout.addWidget(self.nextButton)
+
+        layout.addStretch()
 
         self.setLayout(layout)
         self.update_sample(0)
@@ -221,9 +228,16 @@ class SpectrogramControllerView(QWidget):
     def init_UI(self):
         layout = QVBoxLayout()
 
+        windowLabel = QLabel("Adjust Spectrogram Window")
+        windowLabel.setAlignment(Qt.AlignCenter)
+        layout.addWidget(windowLabel)
+        layout.addStretch()
+
         self.add_slider(layout, 'Frame Length', 'frame_length', 1, self.spectrogram_viewer.sample_rate, self.spectrogram_viewer.frame_length)
         self.add_slider(layout, 'Frame Step', 'frame_step', 1, 256, self.spectrogram_viewer.frame_step)
         self.add_slider(layout, 'Max Frequency', 'max_freq', 1, 2048, self.spectrogram_viewer.max_freq)
+        
+        layout.addStretch()
 
         self.setLayout(layout)
         
@@ -266,9 +280,14 @@ class LabelerControllerView(QWidget):
         exit()
 
     def init_UI(self):
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
 
         # Labeler layout
+        windowLabel = QLabel("Change Sample")
+        windowLabel.setAlignment(Qt.AlignCenter)
+        layout.addWidget(windowLabel)
+        layout.addStretch()
+
         self.keepButton = QPushButton('Elephant', self)
         self.keepButton.clicked.connect(lambda: self.label_sample(1))
         layout.addWidget(self.keepButton)
@@ -277,9 +296,11 @@ class LabelerControllerView(QWidget):
         self.discardButton.clicked.connect(lambda: self.label_sample(0))
         layout.addWidget(self.discardButton)
 
+        layout.addStretch()
+
         self.setLayout(layout)
 
-class MetaFileController:
+class MetaFileControllerView:
     def __init__(self, meta_file, event_bus):
         self.meta_file = meta_file
         self.meta_data = self.load_meta_file(meta_file)
@@ -287,6 +308,8 @@ class MetaFileController:
         self.event_bus.subscribe(self)
 
         self.stored_index = 0
+
+        self.init_UI()
 
     def notify(self, event, *args):
         if event == "data.index_update":
@@ -314,6 +337,9 @@ class MetaFileController:
 
         return meta_data
     
+    def init_UI(self):
+        pass
+    
 class MainWindow(QMainWindow):
     def __init__(self, input_tfrecord_file, output_tfrecord_file, meta_file):
         super().__init__()
@@ -327,7 +353,7 @@ class MainWindow(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle('TFRecord Labeler')
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1000, 800)
 
         self.eventBus = EventBus()
 
@@ -362,16 +388,30 @@ class MainWindow(QMainWindow):
             parent=self
         )
 
+        self.metaFileController = MetaFileControllerView(
+            meta_file=self.meta_file,
+            event_bus=self.eventBus
+        )
+
         mainLayout = QVBoxLayout()
 
         mainLayout.addWidget(self.spectrogramModelView)
 
-        dataSpecControllerLayout = QHBoxLayout()
-        dataSpecControllerLayout.addWidget(self.dataControllerView)
-        dataSpecControllerLayout.addWidget(self.labelerControllerView)
-        dataSpecControllerLayout.addWidget(self.spectrogramContollerView)
+        dashboardLayout = QHBoxLayout()
 
-        mainLayout.addLayout(dataSpecControllerLayout)
+        dashboardSpacer = QSpacerItem(20, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        dashboardLayout.addItem(dashboardSpacer)
+        dashboardLayout.addWidget(self.dataControllerView)
+        dashboardLayout.addWidget(self.labelerControllerView)
+        dashboardLayout.addWidget(self.spectrogramContollerView)
+        dashboardLayout.addItem(dashboardSpacer)
+
+        dashboardContainer = QWidget()
+        dashboardContainer.setLayout(dashboardLayout)
+        dashboardContainer.adjustSize()
+        dashboardContainer.setFixedHeight(dashboardContainer.sizeHint().height()) # dashboard size fixes to initial size
+
+        mainLayout.addWidget(dashboardContainer)
 
         # Set the layout for the central widget
         centralWidget = QWidget(self)
