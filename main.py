@@ -38,6 +38,7 @@ class EventBus:
 
     def publish(self, event, *args):
         """Notify all subscribers about an event"""
+        logger.info(f"Event published : {event}")
         for subscriber in self.subscribers:
             subscriber.notify(event, *args)
 
@@ -49,10 +50,16 @@ class DataControllerView(QWidget):
         self.input_file = input_file
         self.current_index = 0
         self.dataset = self.load_tfrecords(input_file)
-        self.signal_update_event_bus = event_bus
         self.current_signal = None
 
+        self.event_bus = event_bus
+        self.event_bus.subscribe(self)
+
         self.init_UI()
+
+    def notify(self, event, *args):
+        if event == "labeler.queue_next_signal":
+            self.update_sample(1)   # if the labeler requests a new signal, push the indexer forward 1
 
     def get_signal(self):
         return self.current_signal
@@ -82,7 +89,6 @@ class DataControllerView(QWidget):
         return list(dataset)
 
     def update_sample(self, move_direction):
-        logger.info('Loading next sample.')
         self.current_index += move_direction
 
         try:
@@ -91,7 +97,8 @@ class DataControllerView(QWidget):
             self.label.setText(f"Index out of range: {self.current_index}")
             self.closeout()
 
-        self.signal_update_event_bus.publish("data.update", self.current_signal)
+        self.event_bus.publish("data.signal_update", self.current_signal)
+        self.event_bus.publish("data.index_update", self.current_index)
 
     def init_UI(self):
         layout = QVBoxLayout()
@@ -110,7 +117,7 @@ class DataControllerView(QWidget):
         self.update_sample(0)
 
 class SpectrogramModelView(FigureCanvas):
-    def __init__(self, get_fresh_signal_function, signal_event_bus, parent=None, width=5, height=4, dpi=100):
+    def __init__(self, get_fresh_signal_function, event_bus, parent=None, width=5, height=4, dpi=100):
         fig, self.ax = plt.subplots(figsize=(width, height), dpi=dpi)
         super().__init__(fig)
         self.setParent(parent)
@@ -120,14 +127,14 @@ class SpectrogramModelView(FigureCanvas):
         self.frame_step = 64
         self.max_freq = 512
 
-        self.signal_event_bus = signal_event_bus
-        self.signal_event_bus.subscribe(self)
+        self.event_bus = event_bus
+        self.event_bus.subscribe(self)
         self.get_signal = get_fresh_signal_function
 
         self.update_plot()
 
     def notify(self, event, *args):
-        if event=="data.update":
+        if event=="data.signal_update":
             self.update_plot()  # Update grabs the signal automatically
 
     def update_param(self, param, value):
@@ -220,12 +227,16 @@ class SpectrogramControllerView(QWidget):
 
         self.setLayout(layout)
         
-class LabelControllerView(QWidget):
-    def __init__(self, output_file, parent=None):
-        super().init()
+class LabelerControllerView(QWidget):
+    def __init__(self, output_file, get_fresh_signal_function, event_bus, parent=None):
+        super().__init__()
         self.parent=parent
         
-        self.output_file_writer = tf.io.TFRecordWriter(self.output_tfrecord_file)
+        self.output_file = output_file
+        self.output_file_writer = tf.io.TFRecordWriter(output_file)
+
+        self.event_bus = event_bus
+        self.get_signal = get_fresh_signal_function
 
         self.init_UI()
 
@@ -236,13 +247,19 @@ class LabelControllerView(QWidget):
 
         example = tf.train.Example(features=tf.train.Features(feature={
                 'sample': tf.train.Feature(
-                    bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(self.current_sample).numpy()])
+                    bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(self.get_signal()).numpy()])
                 ),
                 'label': tf.train.Feature(
                     int64_list=tf.train.Int64List(value=[label])
                 )
         }))
         self.output_file_writer.write(example.SerializeToString())
+
+        # Notify the system that a signal is being labeled
+        self.event_bus.publish("labeler.signal_labeled", self.output_file, label)
+
+        # Request the next signal
+        self.event_bus.publish("labeler.queue_next_signal")
 
     def close_output_file(self):
         self.output_file_writer.close()
@@ -263,18 +280,40 @@ class LabelControllerView(QWidget):
         self.setLayout(layout)
 
 class MetaFileController:
-    def __init__(self, meta_file):
+    def __init__(self, meta_file, event_bus):
         self.meta_file = meta_file
-        self.meta_data = self.load_meta_file()
+        self.meta_data = self.load_meta_file(meta_file)
+        self.event_bus = event_bus
+        self.event_bus.subscribe(self)
 
-    def load_meta_file(self):
+        self.stored_index = 0
+
+    def notify(self, event, *args):
+        if event == "data.index_update":
+            self.stored_index = args[0]
+        elif event == "labeler.signal_labeled":
+            data_file = args[0]
+            label = args[1]
+            self.write_line(data_file, self.stored_index, label)
+
+    def write_line(self, file, index, label):
+        new_row = pd.DataFrame({
+            'file': file,
+            'index': index,
+            'label': label
+        })
+
+        self.meta_data.concat([self.meta_data, new_row])
+        self.meta_data.to_csv(self.meta_file)
+
+    def load_meta_file(self, meta_file):
         if not os.path.exists(meta_file):
             meta_data = pd.DataFrame(columns=['file', 'index', 'label'])
         else:
             meta_data = pd.read_csv(meta_file)
 
         return meta_data
-
+    
 class MainWindow(QMainWindow):
     def __init__(self, input_tfrecord_file, output_tfrecord_file, meta_file):
         super().__init__()
@@ -290,20 +329,20 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('TFRecord Labeler')
         self.setGeometry(100, 100, 800, 600)
 
-        self.signalUpdateEventBus = EventBus()
+        self.eventBus = EventBus()
 
         # Data Controller
         self.dataControllerView = DataControllerView(
             parent=self, 
             input_file=self.input_tfrecord_file, 
-            event_bus=self.signalUpdateEventBus
+            event_bus=self.eventBus
         )
 
         # Spectrogram View
         self.spectrogramModelView = SpectrogramModelView(
             parent=self, 
             get_fresh_signal_function=self.dataControllerView.get_signal, 
-            signal_event_bus=self.signalUpdateEventBus, 
+            event_bus=self.eventBus, 
             width=5, 
             height=4, 
             dpi=100
@@ -315,6 +354,13 @@ class MainWindow(QMainWindow):
             spectrogram_viewer=self.spectrogramModelView
         )
 
+        # Data Labeler
+        self.labelerControllerView = LabelerControllerView(
+            output_file=self.output_tfrecord_file, 
+            get_fresh_signal_function=self.dataControllerView.get_signal, 
+            event_bus=self.eventBus, 
+            parent=self
+        )
 
         mainLayout = QVBoxLayout()
 
@@ -322,6 +368,7 @@ class MainWindow(QMainWindow):
 
         dataSpecControllerLayout = QHBoxLayout()
         dataSpecControllerLayout.addWidget(self.dataControllerView)
+        dataSpecControllerLayout.addWidget(self.labelerControllerView)
         dataSpecControllerLayout.addWidget(self.spectrogramContollerView)
 
         mainLayout.addLayout(dataSpecControllerLayout)
