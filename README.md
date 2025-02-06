@@ -1,10 +1,10 @@
 # SigVu
 SigVu is a python based signal manipulation and labeling program.
 I started developing this project when working on the Cornel & CSU, Chico 
-Elephant Listening Project, when need to relabel some of the samples was 
-needed. 
+Elephant Listening Project, when the need to relabel some of the samples was 
+raised. 
 
-This project utilizes a standard ML, plotting, and data handling libraries
+This project utilizes standard ML, plotting, and data handling libraries
 to process and label data, all bottled up in a simply PyQt5 GUI.
 
 It serves a few purposes for me:
