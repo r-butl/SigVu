@@ -145,13 +145,13 @@ class DataControllerView(QWidget):
                     )
                 }))
                 output_file_writer.write(example.SerializeToString())
-                
+
         output_file_writer.close()
 
     def init_UI(self):
         layout = QVBoxLayout()
 
-        windowLabel = QLabel("Change Sample")
+        windowLabel = QLabel("<b>Nav & Output</b>")
         windowLabel.setAlignment(Qt.AlignCenter)
         layout.addWidget(windowLabel)
         layout.addStretch()
@@ -297,7 +297,7 @@ class SpectrogramControllerView(QWidget):
     def init_UI(self):
         layout = QVBoxLayout()
 
-        windowLabel = QLabel("Adjust Spectrogram Window")
+        windowLabel = QLabel("<b>Adjust Spectrogram Window</b>")
         windowLabel.setAlignment(Qt.AlignCenter)
         layout.addWidget(windowLabel)
         layout.addStretch()
@@ -334,7 +334,7 @@ class LabelerControllerView(QWidget):
         layout = QVBoxLayout()
 
         # Labeler layout
-        windowLabel = QLabel("Change Sample")
+        windowLabel = QLabel("<b>Apply Label</b>")
         windowLabel.setAlignment(Qt.AlignCenter)
         layout.addWidget(windowLabel)
         layout.addStretch()
@@ -427,36 +427,47 @@ class MetaFileControllerView(QWidget):
     def init_UI(self):
         metaFileLayout = QVBoxLayout()
 
+        sectionTitle = QLabel("<b>Status</b>")
+        sectionTitle.setAlignment(Qt.AlignCenter)
+        metaFileLayout.addWidget(sectionTitle)
+
         labelLayout = QHBoxLayout()
         self.labelLabel = QLabel("Label")
         self.labelValue = QLabel("-")
+        self.labelValue.setAlignment(Qt.AlignRight)
         labelLayout.addWidget(self.labelLabel)
         labelLayout.addWidget(self.labelValue)
 
         indexLayout = QHBoxLayout()
         self.indexLabel = QLabel("Index")
         self.indexValue = QLabel(f"{self.stored_index}")
+        self.indexValue.setAlignment(Qt.AlignRight)
         indexLayout.addWidget(self.indexLabel)
         indexLayout.addWidget(self.indexValue)
 
         elephantLayout = QHBoxLayout()
         self.elephantLabel = QLabel("Elephant")
         self.elephantValue = QLabel(f"{self.stored_index}")
+        self.elephantValue.setAlignment(Qt.AlignRight)
         elephantLayout.addWidget(self.elephantLabel)
         elephantLayout.addWidget(self.elephantValue)
 
         nonelephantLayout = QHBoxLayout()
         self.nonelephantLabel = QLabel("Non-Elephant")
         self.nonelephantValue = QLabel(f"{self.stored_index}")
+        self.nonelephantValue.setAlignment(Qt.AlignRight)
         nonelephantLayout.addWidget(self.nonelephantLabel)
         nonelephantLayout.addWidget(self.nonelephantValue)
 
+        metaFileLayout.addStretch()
         metaFileLayout.addLayout(indexLayout)
         metaFileLayout.addLayout(labelLayout)
         metaFileLayout.addLayout(elephantLayout)
         metaFileLayout.addLayout(nonelephantLayout)
+        metaFileLayout.addStretch()
 
         self.setFixedWidth(200)
+
         self.setLayout(metaFileLayout)
 
     
