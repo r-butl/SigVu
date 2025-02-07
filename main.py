@@ -60,6 +60,8 @@ class DataControllerView(QWidget):
     def notify(self, event, *args):
         if event == "labeler.queue_next_signal":
             self.update_sample(1)   # if the labeler requests a new signal, push the indexer forward 1
+        elif event == "data.request_signal_copy":
+            self.publish_signal()
 
     def get_signal(self):
         return self.current_signal
@@ -97,6 +99,9 @@ class DataControllerView(QWidget):
             self.label.setText(f"Index out of range: {self.current_index}")
             self.closeout()
 
+        self.publish_signal()
+
+    def publish_signal(self):
         self.event_bus.publish("data.signal_update", self.current_signal)
         self.event_bus.publish("data.index_update", self.current_index)
 
@@ -270,7 +275,7 @@ class LabelerControllerView(QWidget):
         self.output_file_writer.write(example.SerializeToString())
 
         # Notify the system that a signal is being labeled
-        self.event_bus.publish("labeler.signal_labeled", self.output_file, label)
+        self.event_bus.publish("labeler.signal_labeled", label)
 
         # Request the next signal
         self.event_bus.publish("labeler.queue_next_signal")
@@ -300,9 +305,12 @@ class LabelerControllerView(QWidget):
 
         self.setLayout(layout)
 
-class MetaFileControllerView:
-    def __init__(self, meta_file, event_bus):
+class MetaFileControllerView(QWidget):
+    def __init__(self, meta_file, input_file, event_bus, parent=None):
+        super().__init__()
+        self.parent = parent
         self.meta_file = meta_file
+        self.input_file = input_file
         self.meta_data = self.load_meta_file(meta_file)
         self.event_bus = event_bus
         self.event_bus.subscribe(self)
@@ -314,20 +322,41 @@ class MetaFileControllerView:
     def notify(self, event, *args):
         if event == "data.index_update":
             self.stored_index = args[0]
+
+            existing_row = self.meta_data[(self.meta_data['file'] == self.input_file) & (self.meta_data['index'] == self.stored_index)]
+
+            print(existing_row)
+            # Grab the meta information if it is available
+            if not existing_row.empty:
+                current_label = existing_row['label'].iloc[0]
+                logger.info("Found existing label.")
+            else:
+                current_label = '-'
+                logger.info("No pre-existing label found.")
+
+            self.update_UI(self.stored_index, current_label)
+
         elif event == "labeler.signal_labeled":
-            data_file = args[0]
-            label = args[1]
-            self.write_line(data_file, self.stored_index, label)
+            label = args[0]
+            self.write_line(self.input_file, self.stored_index, label)
 
     def write_line(self, file, index, label):
         new_row = pd.DataFrame({
-            'file': file,
-            'index': index,
-            'label': label
+            'file': [file],
+            'index': [index],
+            'label': [label]
         })
 
-        self.meta_data.concat([self.meta_data, new_row])
-        self.meta_data.to_csv(self.meta_file)
+        existing_row = self.meta_data[(self.meta_data['file'] == file) & (self.meta_data['index'] == index)]
+
+        if not existing_row.empty:
+            self.meta_data.loc[existing_row.index, 'label'] = label
+            logger.info("Overwritting sample.")
+        else:
+            self.meta_data = pd.concat([self.meta_data, new_row], ignore_index=True)
+            logger.info("Writing new sample.")
+
+        self.meta_data.to_csv(self.meta_file, index=False)
 
     def load_meta_file(self, meta_file):
         if not os.path.exists(meta_file):
@@ -336,9 +365,31 @@ class MetaFileControllerView:
             meta_data = pd.read_csv(meta_file)
 
         return meta_data
+
+    def update_UI(self, index, label):
+        self.labelValue.setText(f"{label}")
+        self.indexValue.setText(f"{index}")
     
     def init_UI(self):
-        pass
+        metaFileLayout = QVBoxLayout()
+
+        labelLayout = QHBoxLayout()
+        self.labelLabel = QLabel("Label")
+        self.labelValue = QLabel("-")
+        labelLayout.addWidget(self.labelLabel)
+        labelLayout.addWidget(self.labelValue)
+
+        indexLayout = QHBoxLayout()
+        self.indexLabel = QLabel("Index")
+        self.indexValue = QLabel(f"{self.stored_index}")
+        indexLayout.addWidget(self.indexLabel)
+        indexLayout.addWidget(self.indexValue)
+
+        metaFileLayout.addLayout(indexLayout)
+        metaFileLayout.addLayout(labelLayout)
+
+        self.setLayout(metaFileLayout)
+
     
 class MainWindow(QMainWindow):
     def __init__(self, input_tfrecord_file, output_tfrecord_file, meta_file):
@@ -388,7 +439,8 @@ class MainWindow(QMainWindow):
             parent=self
         )
 
-        self.metaFileController = MetaFileControllerView(
+        self.metaFileControllerView = MetaFileControllerView(
+            input_file=self.input_tfrecord_file,
             meta_file=self.meta_file,
             event_bus=self.eventBus
         )
@@ -404,6 +456,7 @@ class MainWindow(QMainWindow):
         dashboardLayout.addWidget(self.dataControllerView)
         dashboardLayout.addWidget(self.labelerControllerView)
         dashboardLayout.addWidget(self.spectrogramContollerView)
+        dashboardLayout.addWidget(self.metaFileControllerView)
         dashboardLayout.addItem(dashboardSpacer)
 
         dashboardContainer = QWidget()
