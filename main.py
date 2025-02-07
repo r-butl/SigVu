@@ -7,7 +7,7 @@ import tensorflow as tf
 import librosa
 import librosa.display
 import matplotlib.pyplot as plt
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QSpacerItem, QSizePolicy
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QSpacerItem, QSizePolicy, QSpinBox
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
@@ -200,22 +200,28 @@ class SpectrogramControllerView(QWidget):
 
     def add_slider(self, layout, label_text, param_name, min_value, max_value, initial_value):
         slider_layout = QHBoxLayout()
+
+        label_text_label = QLabel(label_text)
+        label_text_label.setFixedWidth(100)
+        min_value_label = QLabel(f"{min_value}")
+        min_value_label.setFixedWidth(10)
+        max_value_label = QLabel(f"{max_value}")
+        max_value_label.setFixedWidth(50)
+
         slider = QSlider(self)
         slider.setOrientation(Qt.Horizontal)
         slider.setMinimum(min_value)
         slider.setMaximum(max_value)
         slider.setValue(initial_value)
-        value_label = QLabel(f"{slider.value()}")
-        slider.valueChanged.connect(lambda value: self.update_param(param_name, value, value_label))
 
-        label_text_label = QLabel(label_text)
-        min_value_label = QLabel(f"{min_value}")
-        max_value_label = QLabel(f"{max_value}")
+        spinbox = QSpinBox(self)
+        spinbox.setMinimum(min_value)
+        spinbox.setMaximum(max_value)
+        spinbox.setValue(initial_value)
+        spinbox.setFixedWidth(50)
 
-        label_text_label.setFixedWidth(100)
-        min_value_label.setFixedWidth(10)
-        max_value_label.setFixedWidth(50)
-        value_label.setFixedWidth(50)
+        slider.valueChanged.connect(lambda value: self.update_slider(param_name, value, spinbox))
+        spinbox.valueChanged.connect(lambda value: self.update_spinbox(param_name, value, slider))
 
         slider_layout.addWidget(label_text_label)
         slider_layout.addWidget(min_value_label)
@@ -223,12 +229,22 @@ class SpectrogramControllerView(QWidget):
         slider_layout.addWidget(slider)
         slider_layout.addItem(QSpacerItem(10, 10, QSizePolicy.Fixed, QSizePolicy.Minimum))
         slider_layout.addWidget(max_value_label)
-        slider_layout.addWidget(value_label)
+        slider_layout.addWidget(spinbox)
         layout.addLayout(slider_layout)
 
-    def update_param(self, param_name, value, value_label):
+    def update_slider(self, param_name, value, spinbox):
+        if spinbox.value != value:
+            spinbox.blockSignals(True)
+            spinbox.setValue(value)
+            spinbox.blockSignals(False)
         self.spectrogram_viewer.update_param(param_name, value)
-        value_label.setText(f"{value}")
+
+    def update_spinbox(self, param_name, value, slider):
+        if slider.value != value:
+            slider.blockSignals(True)
+            slider.setValue(value)
+            slider.blockSignals(False)
+        self.spectrogram_viewer.update_param(param_name, value)
 
     def init_UI(self):
         layout = QVBoxLayout()
@@ -311,13 +327,23 @@ class MetaFileControllerView(QWidget):
         self.parent = parent
         self.meta_file = meta_file
         self.input_file = input_file
-        self.meta_data = self.load_meta_file(meta_file)
         self.event_bus = event_bus
         self.event_bus.subscribe(self)
+
+        self.load_meta_file(meta_file)
 
         self.stored_index = 0
 
         self.init_UI()
+
+    def load_meta_file(self, meta_file):
+        if not os.path.exists(meta_file):
+            self.meta_data = pd.DataFrame(columns=['file', 'index', 'label'])
+            self.elephant_count = 0
+            self.nonelephant_count = 0
+        else:
+            self.meta_data = pd.read_csv(meta_file)
+            self.update_label_count()
 
     def notify(self, event, *args):
         if event == "data.index_update":
@@ -328,17 +354,18 @@ class MetaFileControllerView(QWidget):
             print(existing_row)
             # Grab the meta information if it is available
             if not existing_row.empty:
-                current_label = existing_row['label'].iloc[0]
+                self.current_label = existing_row['label'].iloc[0]
                 logger.info("Found existing label.")
             else:
-                current_label = '-'
+                self.current_label = '-'
                 logger.info("No pre-existing label found.")
 
-            self.update_UI(self.stored_index, current_label)
+            self.update_UI()
 
         elif event == "labeler.signal_labeled":
             label = args[0]
             self.write_line(self.input_file, self.stored_index, label)
+            self.update_label_count()
 
     def write_line(self, file, index, label):
         new_row = pd.DataFrame({
@@ -351,6 +378,7 @@ class MetaFileControllerView(QWidget):
 
         if not existing_row.empty:
             self.meta_data.loc[existing_row.index, 'label'] = label
+            self.update_label_count()
             logger.info("Overwritting sample.")
         else:
             self.meta_data = pd.concat([self.meta_data, new_row], ignore_index=True)
@@ -358,17 +386,15 @@ class MetaFileControllerView(QWidget):
 
         self.meta_data.to_csv(self.meta_file, index=False)
 
-    def load_meta_file(self, meta_file):
-        if not os.path.exists(meta_file):
-            meta_data = pd.DataFrame(columns=['file', 'index', 'label'])
-        else:
-            meta_data = pd.read_csv(meta_file)
+    def update_label_count(self):
+        self.elephant_count = len(self.meta_data[(self.meta_data['file'] == self.input_file) & (self.meta_data['label'] == 1)])
+        self.nonelephant_count = len(self.meta_data[(self.meta_data['file'] == self.input_file) & (self.meta_data['label'] == 0)])
 
-        return meta_data
-
-    def update_UI(self, index, label):
-        self.labelValue.setText(f"{label}")
-        self.indexValue.setText(f"{index}")
+    def update_UI(self):
+        self.labelValue.setText(f"{self.current_label}")
+        self.indexValue.setText(f"{self.stored_index}")
+        self.elephantValue.setText(f"{self.elephant_count}")
+        self.nonelephantValue.setText(f"{self.nonelephant_count}")
     
     def init_UI(self):
         metaFileLayout = QVBoxLayout()
@@ -385,9 +411,24 @@ class MetaFileControllerView(QWidget):
         indexLayout.addWidget(self.indexLabel)
         indexLayout.addWidget(self.indexValue)
 
+        elephantLayout = QHBoxLayout()
+        self.elephantLabel = QLabel("Elephant")
+        self.elephantValue = QLabel(f"{self.stored_index}")
+        elephantLayout.addWidget(self.elephantLabel)
+        elephantLayout.addWidget(self.elephantValue)
+
+        nonelephantLayout = QHBoxLayout()
+        self.nonelephantLabel = QLabel("Non-Elephant")
+        self.nonelephantValue = QLabel(f"{self.stored_index}")
+        nonelephantLayout.addWidget(self.nonelephantLabel)
+        nonelephantLayout.addWidget(self.nonelephantValue)
+
         metaFileLayout.addLayout(indexLayout)
         metaFileLayout.addLayout(labelLayout)
+        metaFileLayout.addLayout(elephantLayout)
+        metaFileLayout.addLayout(nonelephantLayout)
 
+        self.setFixedWidth(200)
         self.setLayout(metaFileLayout)
 
     
