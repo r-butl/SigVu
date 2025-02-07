@@ -7,7 +7,7 @@ import tensorflow as tf
 import librosa
 import librosa.display
 import matplotlib.pyplot as plt
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QSpacerItem, QSizePolicy, QSpinBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QSpacerItem, QSizePolicy, QSpinBox, QMessageBox
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
@@ -43,12 +43,15 @@ class EventBus:
             subscriber.notify(event, *args)
 
 class DataControllerView(QWidget):
-    def __init__(self,  input_file, event_bus, parent=None):
+    def __init__(self,  input_file, output_file, event_bus, parent=None):
         super().__init__()
         self.parent = parent
 
         self.input_file = input_file
         self.current_index = 0
+
+        self.output_file = output_file
+
         self.dataset = self.load_tfrecords(input_file)
         self.current_signal = None
 
@@ -62,6 +65,9 @@ class DataControllerView(QWidget):
             self.update_sample(1)   # if the labeler requests a new signal, push the indexer forward 1
         elif event == "data.request_signal_copy":
             self.publish_signal()
+        elif event == "meta_file.meta_data":
+            meta_data = args[0]
+            self.write_data(meta_data)
 
     def get_signal(self):
         return self.current_signal
@@ -105,6 +111,43 @@ class DataControllerView(QWidget):
         self.event_bus.publish("data.signal_update", self.current_signal)
         self.event_bus.publish("data.index_update", self.current_index)
 
+    def trigger_write_data(self):
+        # Create a confirmation dialog
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Warning)
+        msg_box.setWindowTitle("Confirmation Write Data")
+        msg_box.setText("You are about to write the labels and samples to the output file.")
+        msg_box.setInformativeText("This action will overwrite any existing data in the output file. Do you wish to continue?")
+        msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg_box.setDefaultButton(QMessageBox.No)
+
+        response = msg_box.exec_()
+
+        if response == QMessageBox.Yes:
+            self.event_bus.publish("data.request_meta_data")
+
+    def write_data(self, meta_file):
+        
+        output_file_writer = tf.io.TFRecordWriter(self.output_file)
+        rows = meta_file[meta_file['file'] == self.input_file]
+
+        if not rows.empty:
+            for _, row in rows.iterrows():
+                index = row['index']
+                label = row['label']
+                logger.info(f"Writing index {index} with label {label} to file {self.output_file}")
+                example = tf.train.Example(features=tf.train.Features(feature={
+                    'sample': tf.train.Feature(
+                        bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(self.dataset[index]).numpy()])
+                    ),
+                    'label': tf.train.Feature(
+                        int64_list=tf.train.Int64List(value=[label])
+                    )
+                }))
+                output_file_writer.write(example.SerializeToString())
+                
+        output_file_writer.close()
+
     def init_UI(self):
         layout = QVBoxLayout()
 
@@ -113,15 +156,20 @@ class DataControllerView(QWidget):
         layout.addWidget(windowLabel)
         layout.addStretch()
 
+        self.nextButton = QPushButton('Next', self)
+        self.nextButton.setFixedWidth(100)
+        self.nextButton.clicked.connect(lambda: self.update_sample(1))
+        layout.addWidget(self.nextButton)
+
         self.prevButton = QPushButton('Previous', self)
         self.prevButton.setFixedWidth(100)
         self.prevButton.clicked.connect(lambda: self.update_sample(-1))
         layout.addWidget(self.prevButton)
 
-        self.nextButton = QPushButton('Next', self)
-        self.nextButton.setFixedWidth(100)
-        self.nextButton.clicked.connect(lambda: self.update_sample(1))
-        layout.addWidget(self.nextButton)
+        self.writeData = QPushButton('Write Data', self)
+        self.writeData.setFixedWidth(100)
+        self.writeData.clicked.connect(lambda: self.trigger_write_data())
+        layout.addWidget(self.writeData)
 
         layout.addStretch()
 
@@ -190,7 +238,7 @@ class SpectrogramModelView(FigureCanvas):
         self.draw()
 
 class SpectrogramControllerView(QWidget):
-    def __init__(self,spectrogram_viewer, parent=None):
+    def __init__(self, spectrogram_viewer, parent=None):
         super().__init__()
 
         self.setParent(parent)
@@ -263,34 +311,16 @@ class SpectrogramControllerView(QWidget):
         self.setLayout(layout)
         
 class LabelerControllerView(QWidget):
-    def __init__(self, output_file, get_fresh_signal_function, event_bus, parent=None):
+    def __init__(self, event_bus, parent=None):
         super().__init__()
         self.parent=parent
-        
-        self.output_file = output_file
-        self.output_file_writer = tf.io.TFRecordWriter(output_file)
 
         self.event_bus = event_bus
-        self.get_signal = get_fresh_signal_function
 
         self.init_UI()
 
     def label_sample(self, label):
-        """
-        Append a new TFRecord
-        """
-
-        example = tf.train.Example(features=tf.train.Features(feature={
-                'sample': tf.train.Feature(
-                    bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(self.get_signal()).numpy()])
-                ),
-                'label': tf.train.Feature(
-                    int64_list=tf.train.Int64List(value=[label])
-                )
-        }))
-        self.output_file_writer.write(example.SerializeToString())
-
-        # Notify the system that a signal is being labeled
+        # Send the label to the meta file
         self.event_bus.publish("labeler.signal_labeled", label)
 
         # Request the next signal
@@ -309,13 +339,13 @@ class LabelerControllerView(QWidget):
         layout.addWidget(windowLabel)
         layout.addStretch()
 
-        self.keepButton = QPushButton('Elephant', self)
-        self.keepButton.clicked.connect(lambda: self.label_sample(1))
-        layout.addWidget(self.keepButton)
+        self.positiveButton = QPushButton('Elephant', self)
+        self.positiveButton.clicked.connect(lambda: self.label_sample(1))
+        layout.addWidget(self.positiveButton)
 
-        self.discardButton = QPushButton('Not Elephant', self)
-        self.discardButton.clicked.connect(lambda: self.label_sample(0))
-        layout.addWidget(self.discardButton)
+        self.negativeButton = QPushButton('Not Elephant', self)
+        self.negativeButton.clicked.connect(lambda: self.label_sample(0))
+        layout.addWidget(self.negativeButton)
 
         layout.addStretch()
 
@@ -351,14 +381,11 @@ class MetaFileControllerView(QWidget):
 
             existing_row = self.meta_data[(self.meta_data['file'] == self.input_file) & (self.meta_data['index'] == self.stored_index)]
 
-            print(existing_row)
             # Grab the meta information if it is available
             if not existing_row.empty:
                 self.current_label = existing_row['label'].iloc[0]
-                logger.info("Found existing label.")
             else:
                 self.current_label = '-'
-                logger.info("No pre-existing label found.")
 
             self.update_UI()
 
@@ -366,6 +393,9 @@ class MetaFileControllerView(QWidget):
             label = args[0]
             self.write_line(self.input_file, self.stored_index, label)
             self.update_label_count()
+
+        elif event == "data.request_meta_data":
+            self.event_bus.publish("meta_file.meta_data", self.meta_data)
 
     def write_line(self, file, index, label):
         new_row = pd.DataFrame({
@@ -379,10 +409,8 @@ class MetaFileControllerView(QWidget):
         if not existing_row.empty:
             self.meta_data.loc[existing_row.index, 'label'] = label
             self.update_label_count()
-            logger.info("Overwritting sample.")
         else:
             self.meta_data = pd.concat([self.meta_data, new_row], ignore_index=True)
-            logger.info("Writing new sample.")
 
         self.meta_data.to_csv(self.meta_file, index=False)
 
@@ -453,6 +481,7 @@ class MainWindow(QMainWindow):
         self.dataControllerView = DataControllerView(
             parent=self, 
             input_file=self.input_tfrecord_file, 
+            output_file=self.output_tfrecord_file, 
             event_bus=self.eventBus
         )
 
@@ -474,8 +503,6 @@ class MainWindow(QMainWindow):
 
         # Data Labeler
         self.labelerControllerView = LabelerControllerView(
-            output_file=self.output_tfrecord_file, 
-            get_fresh_signal_function=self.dataControllerView.get_signal, 
             event_bus=self.eventBus, 
             parent=self
         )
