@@ -7,7 +7,7 @@ import tensorflow as tf
 import librosa
 import librosa.display
 import matplotlib.pyplot as plt
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QSpacerItem, QSizePolicy, QSpinBox, QMessageBox
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QLabel, QSlider, QSpacerItem, QSizePolicy, QSpinBox, QMessageBox, QFrame
 from PyQt5.QtCore import Qt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
@@ -166,10 +166,10 @@ class DataControllerView(QWidget):
         self.prevButton.clicked.connect(lambda: self.update_sample(-1))
         layout.addWidget(self.prevButton)
 
-        self.writeData = QPushButton('Write Data', self)
-        self.writeData.setFixedWidth(100)
-        self.writeData.clicked.connect(lambda: self.trigger_write_data())
-        layout.addWidget(self.writeData)
+        self.writeDataButton = QPushButton('Write Data', self)
+        self.writeDataButton.setFixedWidth(100)
+        self.writeDataButton.clicked.connect(lambda: self.trigger_write_data())
+        layout.addWidget(self.writeDataButton)
 
         layout.addStretch()
 
@@ -183,9 +183,9 @@ class SpectrogramModelView(FigureCanvas):
         self.setParent(parent)
 
         self.sample_rate = 4000
-        self.frame_length = 1024
-        self.frame_step = 64
-        self.max_freq = 512
+        self.frame_length = 4000
+        self.frame_step = 32
+        self.max_freq = 200
 
         self.event_bus = event_bus
         self.event_bus.subscribe(self)
@@ -246,8 +246,8 @@ class SpectrogramControllerView(QWidget):
 
         self.init_UI()
 
-    def add_slider(self, layout, label_text, param_name, min_value, max_value, initial_value):
-        slider_layout = QHBoxLayout()
+    def add_spinbox(self, layout, label_text, param_name, min_value, max_value, initial_value):
+        contoller_layout = QHBoxLayout()
 
         label_text_label = QLabel(label_text)
         label_text_label.setFixedWidth(100)
@@ -256,42 +256,19 @@ class SpectrogramControllerView(QWidget):
         max_value_label = QLabel(f"{max_value}")
         max_value_label.setFixedWidth(50)
 
-        slider = QSlider(self)
-        slider.setOrientation(Qt.Horizontal)
-        slider.setMinimum(min_value)
-        slider.setMaximum(max_value)
-        slider.setValue(initial_value)
-
         spinbox = QSpinBox(self)
         spinbox.setMinimum(min_value)
         spinbox.setMaximum(max_value)
         spinbox.setValue(initial_value)
-        spinbox.setFixedWidth(50)
+        spinbox.setFixedWidth(75)
 
-        slider.valueChanged.connect(lambda value: self.update_slider(param_name, value, spinbox))
-        spinbox.valueChanged.connect(lambda value: self.update_spinbox(param_name, value, slider))
+        spinbox.valueChanged.connect(lambda value: self.update_spinbox(param_name, value))
 
-        slider_layout.addWidget(label_text_label)
-        slider_layout.addWidget(min_value_label)
-        slider_layout.addItem(QSpacerItem(10, 10, QSizePolicy.Fixed, QSizePolicy.Minimum))
-        slider_layout.addWidget(slider)
-        slider_layout.addItem(QSpacerItem(10, 10, QSizePolicy.Fixed, QSizePolicy.Minimum))
-        slider_layout.addWidget(max_value_label)
-        slider_layout.addWidget(spinbox)
-        layout.addLayout(slider_layout)
+        contoller_layout.addWidget(label_text_label)
+        contoller_layout.addWidget(spinbox)
+        layout.addLayout(contoller_layout)
 
-    def update_slider(self, param_name, value, spinbox):
-        if spinbox.value != value:
-            spinbox.blockSignals(True)
-            spinbox.setValue(value)
-            spinbox.blockSignals(False)
-        self.spectrogram_viewer.update_param(param_name, value)
-
-    def update_spinbox(self, param_name, value, slider):
-        if slider.value != value:
-            slider.blockSignals(True)
-            slider.setValue(value)
-            slider.blockSignals(False)
+    def update_spinbox(self, param_name, value):
         self.spectrogram_viewer.update_param(param_name, value)
 
     def init_UI(self):
@@ -302,9 +279,9 @@ class SpectrogramControllerView(QWidget):
         layout.addWidget(windowLabel)
         layout.addStretch()
 
-        self.add_slider(layout, 'Frame Length', 'frame_length', 1, self.spectrogram_viewer.sample_rate, self.spectrogram_viewer.frame_length)
-        self.add_slider(layout, 'Frame Step', 'frame_step', 1, 256, self.spectrogram_viewer.frame_step)
-        self.add_slider(layout, 'Max Frequency', 'max_freq', 1, 2048, self.spectrogram_viewer.max_freq)
+        self.add_spinbox(layout, 'Frame Length', 'frame_length', 1, self.spectrogram_viewer.sample_rate, self.spectrogram_viewer.frame_length)
+        self.add_spinbox(layout, 'Frame Step', 'frame_step', 1, 256, self.spectrogram_viewer.frame_step)
+        self.add_spinbox(layout, 'Max Frequency', 'max_freq', 1, 2048, self.spectrogram_viewer.max_freq)
         
         layout.addStretch()
 
@@ -347,6 +324,10 @@ class LabelerControllerView(QWidget):
         self.negativeButton.clicked.connect(lambda: self.label_sample(0))
         layout.addWidget(self.negativeButton)
 
+        self.nolabelButton = QPushButton('No Label', self)
+        self.nolabelButton.clicked.connect(lambda: self.label_sample(-1))
+        layout.addWidget(self.nolabelButton)
+
         layout.addStretch()
 
         self.setLayout(layout)
@@ -359,12 +340,15 @@ class MetaFileControllerView(QWidget):
         self.input_file = input_file
         self.event_bus = event_bus
         self.event_bus.subscribe(self)
+        self.stored_index = 0
+        self.current_label = '-'
 
         self.load_meta_file(meta_file)
 
-        self.stored_index = 0
-
         self.init_UI()
+
+        self.update_label_count()
+        self.update_UI()
 
     def load_meta_file(self, meta_file):
         if not os.path.exists(meta_file):
@@ -398,23 +382,38 @@ class MetaFileControllerView(QWidget):
             self.event_bus.publish("meta_file.meta_data", self.meta_data)
 
     def write_line(self, file, index, label):
-        new_row = pd.DataFrame({
-            'file': [file],
-            'index': [index],
-            'label': [label]
-        })
 
         existing_row = self.meta_data[(self.meta_data['file'] == file) & (self.meta_data['index'] == index)]
 
-        if not existing_row.empty:
-            self.meta_data.loc[existing_row.index, 'label'] = label
-            self.update_label_count()
+        if label == -1:
+            if not existing_row.empty:
+                self.meta_data = self.meta_data.drop(existing_row.index)
+                logger.info(f"Removing row with file: {file} and index: {index}.")
+            else:
+                logger.info(f"No row found with file: {file} and index: {index} to remove.")
         else:
-            self.meta_data = pd.concat([self.meta_data, new_row], ignore_index=True)
+            new_row = pd.DataFrame({
+                'file': [file],
+                'index': [index],
+                'label': [label]
+            })
+
+            if not existing_row.empty:
+                self.meta_data.loc[existing_row.index, 'label'] = label
+                logger.info(f"Updated row with file: {file} and index: {index} to label: {label}.")
+            else:
+                self.meta_data = pd.concat([self.meta_data, new_row], ignore_index=True)
+                logger.info(f"Added row with file: {file} and index: {index} to label: {label}.")
 
         self.meta_data.to_csv(self.meta_file, index=False)
+        self.update_label_count()
 
     def update_label_count(self):
+        existing_row = self.meta_data[(self.meta_data['file'] == self.input_file) & (self.meta_data['index'] == self.stored_index)]
+
+        if not existing_row.empty:
+            self.current_label = existing_row['label'].iloc[0]
+
         self.elephant_count = len(self.meta_data[(self.meta_data['file'] == self.input_file) & (self.meta_data['label'] == 1)])
         self.nonelephant_count = len(self.meta_data[(self.meta_data['file'] == self.input_file) & (self.meta_data['label'] == 0)])
 
@@ -470,7 +469,6 @@ class MetaFileControllerView(QWidget):
 
         self.setLayout(metaFileLayout)
 
-    
 class MainWindow(QMainWindow):
     def __init__(self, input_tfrecord_file, output_tfrecord_file, meta_file):
         super().__init__()
@@ -563,7 +561,6 @@ def main():
     mainWin = MainWindow(input_file, output_file, meta_data_file)
     mainWin.show()
     sys.exit(app.exec_())
-
 
 if __name__ == '__main__':
     main()
