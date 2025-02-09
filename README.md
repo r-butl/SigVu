@@ -1,9 +1,9 @@
 # Set Up
 
-Using python=3.10, run the following command to install the necessary packages. 
+Run the following command to install the necessary packages. 
 
 ```
-conda env create -f environment.yml -n new_env
+conda env create -f environment.yml -n new_env python=3.10
 ```
 
 ```
@@ -28,22 +28,11 @@ python main.py audio_test.tfrecord audio_test_cherrypick.tfrecord audio_test_che
 ```
 
 # SigVu Overview
-SigVu is a Python based signal manipulation and labeling program.
-I started developing this project when working on the Cornel & CSU, Chico 
-Elephant Listening Project, when the need to relabel some of the samples was 
-raised. 
-
-This project utilizes standard ML, plotting, and data handling libraries
-to process and label data, all bottled up in a simply PyQt5 GUI.
+SigVu is a Python based signal exploration and labeling program for the niche
+of exploring audio signals in TFRecord format.
 
 <img src="assets/current_gui.png" width="600px" />
 
-It serves a few purposes for me:
-1. Interactive manipulation of data view signal processing functionality.
-2. Real time view of the signal.
-3. Simplified data labeling.
-4. Python software engineering practice.
-
-So far, this is the high-level UML for the archtecture of the project.
+This is the high-level UML for the archtecture of the project:
 
 <img src="assets/highlevel-uml.png" width="600px" />
