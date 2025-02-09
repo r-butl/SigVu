@@ -16,12 +16,19 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s", force=True)
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Process some files.")
-    parser.add_argument('input_file', type=str, help='Path to the input file')
-    parser.add_argument('output_file', type=str, help='Path to the output file')
-    parser.add_argument('meta_data_file', type=str, help='Path to the meta data file')
-    return parser.parse_args()
+    parser = argparse.ArgumentParser(description="Input a .TFrecord and a .csv.")
+    parser.add_argument('input_file', type=str, help='Path to the input file (.tfrecord)')
+    parser.add_argument('output_file', type=str, help='Path to the output file (.tfrecord)')
+    parser.add_argument('meta_data_file', type=str, help='Path to the meta data file (.csv)')
+    args = parser.parse_args()
 
+    # Check if all required arguments are provided
+    if not args.input_file or not args.output_file or not args.meta_data_file:
+        parser.print_help()
+        sys.exit(1)
+
+    return args
+    
 class EventBus:
     def __init__(self):
         self.subscribers = []
