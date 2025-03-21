@@ -190,7 +190,7 @@ class SpectrogramModelView(FigureCanvas):
         self.setParent(parent)
 
         self.sample_rate = 4000
-        self.frame_length = 4000
+        self.frame_length = 2048
         self.frame_step = 32
         self.max_freq = 200
 
@@ -228,20 +228,46 @@ class SpectrogramModelView(FigureCanvas):
         stft = tf.math.log(tf.abs(stft) + 1e-10)
         return stft.numpy().T
 
+    # def update_plot(self):
+    #     self.ax.clear()
+
+    #     signal = self.get_signal()  # Grab a fresh signal
+    #     spec = self.apply_spectrogram(signal, self.frame_length, self.frame_step, self.sample_rate, self.max_freq)
+        
+    #     time_axis = np.arange(spec.shape[1]) * (self.frame_step / self.sample_rate)
+    #     img = self.ax.imshow(   spec, aspect='auto', origin='lower', 
+    #                             extent=[time_axis[0], time_axis[-1] + (self.frame_step / self.sample_rate), 0, 
+    #                             self.max_freq], cmap='Reds')
+
+    #     self.ax.set_ylim(1, self.max_freq)  # Set y-axis limits
+    #     self.ax.set_title('Spectrogram')
+    #     self.ax.set_xlabel('Time (s)')
+    #     self.ax.set_ylabel('Frequency (Hz)')
+            
+    #     self.draw()
+
     def update_plot(self):
-        self.ax.clear()
+        # Clear the figure completely
+        self.figure.clear()
+        self.ax = self.figure.add_subplot(111)  # Recreate the main axis
 
         signal = self.get_signal()  # Grab a fresh signal
         spec = self.apply_spectrogram(signal, self.frame_length, self.frame_step, self.sample_rate, self.max_freq)
 
-        img = self.ax.imshow(spec, aspect='auto', origin='lower', 
-                             extent=[0, len(signal) / self.sample_rate, 0, self.max_freq],
-                             cmap='Reds')
+        time_axis = np.arange(spec.shape[1]) * (self.frame_step / self.sample_rate)
+        img = self.ax.imshow(spec, aspect='auto', origin='lower',
+                            extent=[time_axis[0], time_axis[-1] + (self.frame_step / self.sample_rate), 0,
+                                    self.max_freq], cmap='Reds')
 
         self.ax.set_ylim(1, self.max_freq)  # Set y-axis limits
         self.ax.set_title('Spectrogram')
         self.ax.set_xlabel('Time (s)')
         self.ax.set_ylabel('Frequency (Hz)')
+
+        # Add new colorbar
+        self.cbar = self.figure.colorbar(img, ax=self.ax)
+        self.cbar.set_label("Intensity (dB)")
+
         self.draw()
 
 class SpectrogramControllerView(QWidget):
