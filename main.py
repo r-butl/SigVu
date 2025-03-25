@@ -61,6 +61,7 @@ class DataControllerView(QWidget):
 
         self.dataset = self.load_tfrecords(input_file)
         self.current_signal = None
+        self.current_label = None
 
         self.event_bus = event_bus
         self.event_bus.subscribe(self)
@@ -77,7 +78,7 @@ class DataControllerView(QWidget):
             self.write_data(meta_data)
 
     def get_signal(self):
-        return self.current_signal
+        return self.current_signal, self.current_label
 
     def load_tfrecords(self, input_file):
         """
@@ -94,8 +95,9 @@ class DataControllerView(QWidget):
             
             parsed_example = tf.io.parse_single_example(example_proto, feature_description)
             sample = tf.io.parse_tensor(parsed_example['sample'], out_type=tf.float32)
+            label = parsed_example['label']
             
-            return sample
+            return sample, label
         
         dataset = tf.data.TFRecordDataset(tf.io.gfile.glob(input_file))
         dataset = dataset.map(parse_function, num_parallel_calls=tf.data.AUTOTUNE)
@@ -107,11 +109,13 @@ class DataControllerView(QWidget):
         self.current_index += move_direction
 
         try:
-            self.current_signal = self.dataset[self.current_index]
+            self.current_signal = self.dataset[self.current_index][0]
+            self.current_label = self.dataset[self.current_index][1]
         except StopIteration:
             self.label.setText(f"Index out of range: {self.current_index}")
             self.closeout()
-
+        
+        logger.info(f"Current label {self.current_label}")
         self.publish_signal()
 
     def publish_signal(self):
@@ -228,30 +232,12 @@ class SpectrogramModelView(FigureCanvas):
         stft = tf.math.log(tf.abs(stft) + 1e-10)
         return stft.numpy().T
 
-    # def update_plot(self):
-    #     self.ax.clear()
-
-    #     signal = self.get_signal()  # Grab a fresh signal
-    #     spec = self.apply_spectrogram(signal, self.frame_length, self.frame_step, self.sample_rate, self.max_freq)
-        
-    #     time_axis = np.arange(spec.shape[1]) * (self.frame_step / self.sample_rate)
-    #     img = self.ax.imshow(   spec, aspect='auto', origin='lower', 
-    #                             extent=[time_axis[0], time_axis[-1] + (self.frame_step / self.sample_rate), 0, 
-    #                             self.max_freq], cmap='Reds')
-
-    #     self.ax.set_ylim(1, self.max_freq)  # Set y-axis limits
-    #     self.ax.set_title('Spectrogram')
-    #     self.ax.set_xlabel('Time (s)')
-    #     self.ax.set_ylabel('Frequency (Hz)')
-            
-    #     self.draw()
-
     def update_plot(self):
         # Clear the figure completely
         self.figure.clear()
         self.ax = self.figure.add_subplot(111)  # Recreate the main axis
 
-        signal = self.get_signal()  # Grab a fresh signal
+        signal, label = self.get_signal()  # Grab a fresh signal
         spec = self.apply_spectrogram(signal, self.frame_length, self.frame_step, self.sample_rate, self.max_freq)
 
         time_axis = np.arange(spec.shape[1]) * (self.frame_step / self.sample_rate)
@@ -260,7 +246,7 @@ class SpectrogramModelView(FigureCanvas):
                                     self.max_freq], cmap='Reds')
 
         self.ax.set_ylim(1, self.max_freq)  # Set y-axis limits
-        self.ax.set_title('Spectrogram')
+        self.ax.set_title(f'Spectrogram with label {label}')
         self.ax.set_xlabel('Time (s)')
         self.ax.set_ylabel('Frequency (Hz)')
 
